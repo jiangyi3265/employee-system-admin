@@ -42,6 +42,9 @@
       <el-col :span="1.5">
         <el-button type="info" plain icon="Document" @click="handleExportWord">导出Word</el-button>
       </el-col>
+      <el-col :span="1.5" v-if="activeTable === 'quoteOrders'">
+        <el-button type="primary" plain icon="Tickets" @click="handleExportQuoteTemplate">导出报价单模板</el-button>
+      </el-col>
       <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
 
@@ -478,6 +481,27 @@ function exportFilename(ext) {
   return `${currentTableLabel.value}-${activeTable.value}-${date}.${ext}`
 }
 
+function money(value) {
+  return `¥${Number(value || 0).toFixed(2)}`
+}
+
+function dateText(value) {
+  if (!value) {
+    return '-'
+  }
+  const date = new Date(Number(value) || value)
+  if (Number.isNaN(date.getTime())) {
+    return formatCell(value)
+  }
+  return date.toLocaleDateString()
+}
+
+function quoteOrderTotal(items) {
+  return items.reduce((sum, item) => {
+    return sum + (Number(item.qty) || 0) * (Number(item.price) || 0)
+  }, 0)
+}
+
 function handleExportExcel() {
   exportRows().then(list => {
     const cols = exportColumns(list)
@@ -514,6 +538,58 @@ function handleExportWord() {
       <table><thead><tr>${cols.map(col => `<th>${escapeHtml(formatColumnLabel(col))}</th>`).join('')}</tr></thead><tbody>${bodyRows}</tbody></table>
     </body></html>`
     downloadTextFile('\ufeff' + html, exportFilename('doc'), 'application/msword;charset=utf-8')
+  })
+}
+
+function handleExportQuoteTemplate() {
+  Promise.all([
+    exportRows(),
+    listSqms('quoteItems', { pageNum: 1, pageSize: 10000 })
+  ]).then(([orders, itemResponse]) => {
+    const allItems = readRows(itemResponse).filter(item => !item.needsAdminReview)
+    if (!orders.length) {
+      proxy.$modal.msgWarning('暂无可导出的报价单')
+      return
+    }
+    const sections = orders.map(order => {
+      const orderId = getRowId(order)
+      const items = allItems.filter(item => item.orderId === orderId)
+      const bodyRows = items.length ? items.map((item, index) => {
+        const total = (Number(item.qty) || 0) * (Number(item.price) || 0)
+        return `<tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(item.productName)}</td>
+          <td>${escapeHtml(item.spec)}</td>
+          <td>${escapeHtml(item.unit || '个')}</td>
+          <td>${money(item.price)}</td>
+          <td>${escapeHtml(item.qty)}</td>
+          <td>${money(total)}</td>
+        </tr>`
+      }).join('') : '<tr><td colspan="7" class="empty-row">暂无报价明细</td></tr>'
+      return `<section class="quote-section">
+        <h2>${escapeHtml(order.customerName || '客户')}采购物品询价单</h2>
+        <div class="meta">报价员工：${escapeHtml(order.employeeName || '-')}，日期：${escapeHtml(dateText(order.createTime))}</div>
+        <table>
+          <thead><tr><th>序号</th><th>物品名称</th><th>规格</th><th>单位</th><th>单价</th><th>数量</th><th>合计</th></tr></thead>
+          <tbody>${bodyRows}</tbody>
+          <tfoot><tr><td colspan="6">合计</td><td>${money(quoteOrderTotal(items))}</td></tr></tfoot>
+        </table>
+      </section>`
+    }).join('')
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      body{font-family:"Microsoft YaHei",Arial,sans-serif;color:#111827;}
+      .quote-section{margin:0 0 28px;page-break-inside:avoid;}
+      h2{font-size:20px;margin:0 0 8px;}
+      .meta{color:#667085;margin-bottom:12px;}
+      table{border-collapse:collapse;width:100%;}
+      th,td{border:1px solid #cfd8e3;padding:8px 10px;font-size:12px;text-align:left;}
+      th{background:#eef4ff;color:#1e40af;}
+      td:nth-child(1),td:nth-child(4),td:nth-child(6){text-align:center;}
+      td:nth-child(5),td:nth-child(7),tfoot td{text-align:right;}
+      tfoot td{font-weight:700;background:#f8fafc;}
+      .empty-row{text-align:center;color:#98a2b3;}
+    </style></head><body>${sections}</body></html>`
+    downloadTextFile('\ufeff' + html, exportFilename('xls'), 'application/vnd.ms-excel;charset=utf-8')
   })
 }
 
