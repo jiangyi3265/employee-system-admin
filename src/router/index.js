@@ -84,6 +84,22 @@ export const constantRoutes = [
         meta: { title: '个人中心', icon: 'user' }
       }
     ]
+  },
+  {
+    path: '/business',
+    component: Layout,
+    redirect: '/business/sqms',
+    alwaysShow: true,
+    name: 'Business',
+    meta: { title: '业务管理', icon: 'table' },
+    children: [
+      {
+        path: 'sqms',
+        component: () => import('@/views/business/sqms/index'),
+        name: 'SqmsBusiness',
+        meta: { title: '业务数据', icon: 'list' }
+      }
+    ]
   }
 ]
 
