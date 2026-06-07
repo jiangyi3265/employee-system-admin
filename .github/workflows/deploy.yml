@@ -13,6 +13,7 @@ concurrency:
 env:
   TARGET_DIR: /www/wwwroot/glht.oksja.cn
   ARCHIVE_NAME: admin-dist.tar.gz
+  BACKEND_PORT: 9090
 
 jobs:
   deploy:
@@ -73,16 +74,17 @@ jobs:
             chown -R www:www "$TARGET_DIR" 2>/dev/null || true
 
             CONF="/www/server/panel/vhost/nginx/glht.oksja.cn.conf"
+            BACKEND_PORT="${{ env.BACKEND_PORT }}"
             if [ -f "$CONF" ]; then
               BLOCK_FILE="$(mktemp)"
-              cat > "$BLOCK_FILE" <<'EOF'
+              cat > "$BLOCK_FILE" <<EOF
                 # codex-prod-api-proxy-start
                 location ^~ /prod-api/ {
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                    proxy_set_header X-Forwarded-Proto $scheme;
-                    proxy_pass http://127.0.0.1:8080/;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto \$scheme;
+                    proxy_pass http://127.0.0.1:$BACKEND_PORT/;
                 }
                 # codex-prod-api-proxy-end
             EOF
