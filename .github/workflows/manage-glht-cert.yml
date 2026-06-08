@@ -73,7 +73,8 @@ jobs:
 
             chmod 644 "$CERT_DIR/fullchain.pem"
             chmod 600 "$CERT_DIR/privkey.pem"
-            openssl x509 -in "$CERT_DIR/fullchain.pem" -noout -subject -issuer -dates -ext subjectAltName
+            openssl x509 -in "$CERT_DIR/fullchain.pem" -noout -subject -issuer -dates
+            openssl x509 -in "$CERT_DIR/fullchain.pem" -noout -text | sed -n '/Subject Alternative Name/,+1p' || true
 
             python_bin="$(command -v python3 || command -v python || true)"
             if [ -z "$python_bin" ]; then
