@@ -105,6 +105,71 @@ jobs:
               ' "$CONF" > "$TMP_CONF"
               cat "$TMP_CONF" > "$CONF"
               rm -f "$BLOCK_FILE" "$TMP_CONF"
+
+              SPA_BLOCK_FILE="$(mktemp)"
+              cat > "$SPA_BLOCK_FILE" <<EOF
+                # codex-admin-spa-start
+                location / {
+                    try_files \$uri \$uri/ /index.html;
+                }
+                # codex-admin-spa-end
+            EOF
+              PYTHON_BIN="$(command -v python3 || command -v python || true)"
+              if [ -z "$PYTHON_BIN" ]; then
+                echo "python3/python command not found on server"
+                exit 1
+              fi
+              "$PYTHON_BIN" - "$CONF" "$SPA_BLOCK_FILE" <<'PY'
+            import re
+            import sys
+            from pathlib import Path
+
+            conf = Path(sys.argv[1])
+            block_file = Path(sys.argv[2])
+            lines = conf.read_text(encoding="utf-8").splitlines()
+
+            def skip_block(source, start):
+                depth = 0
+                saw_open = False
+                i = start
+                while i < len(source):
+                    line = source[i]
+                    depth += line.count("{") - line.count("}")
+                    saw_open = saw_open or "{" in line
+                    i += 1
+                    if saw_open and depth <= 0:
+                        break
+                    if not saw_open and line.strip().endswith(";"):
+                        break
+                return i
+
+            cleaned = []
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                if "# codex-admin-spa-start" in line:
+                    i += 1
+                    while i < len(lines) and "# codex-admin-spa-end" not in lines[i]:
+                        i += 1
+                    if i < len(lines):
+                        i += 1
+                    continue
+                if re.match(r"^\s*location\s+/\s*\{", line):
+                    i = skip_block(lines, i)
+                    continue
+                cleaned.append(line)
+                i += 1
+
+            block = block_file.read_text(encoding="utf-8").rstrip("\n").splitlines()
+            insert_at = len(cleaned)
+            for index in range(len(cleaned) - 1, -1, -1):
+                if cleaned[index].strip() == "}":
+                    insert_at = index
+                    break
+            cleaned[insert_at:insert_at] = block
+            conf.write_text("\n".join(cleaned) + "\n", encoding="utf-8")
+            PY
+              rm -f "$SPA_BLOCK_FILE"
             fi
 
             if command -v nginx >/dev/null 2>&1; then
