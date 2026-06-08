@@ -25,6 +25,25 @@ import Layout from '@/layout'
  */
 
 // 公共路由
+const businessModuleRoutes = [
+  { table: 'employees', name: 'BusinessEmployees', title: '员工', icon: 'user' },
+  { table: 'customers', name: 'BusinessCustomers', title: '客户', icon: 'peoples' },
+  { table: 'products', name: 'BusinessProducts', title: '商品', icon: 'shopping' },
+  { table: 'competitors', name: 'BusinessCompetitors', title: '同行', icon: 'people' },
+  { table: 'suppliers', name: 'BusinessSuppliers', title: '供货商', icon: 'shopping' },
+  { table: 'quoteOrders', name: 'BusinessQuoteOrders', title: '报价单', icon: 'money' },
+  { table: 'quoteItems', name: 'BusinessQuoteItems', title: '报价明细', icon: 'list' },
+  { table: 'requestOrders', name: 'BusinessRequestOrders', title: '接单', icon: 'form' },
+  { table: 'requestItems', name: 'BusinessRequestItems', title: '接单明细', icon: 'table' },
+  { table: 'competitorQuotes', name: 'BusinessCompetitorQuotes', title: '同行报价', icon: 'money' },
+  { table: 'purchaseOrders', name: 'BusinessPurchaseOrders', title: '采购单', icon: 'shopping' },
+  { table: 'purchaseItems', name: 'BusinessPurchaseItems', title: '采购明细', icon: 'list' },
+  { table: 'follows', name: 'BusinessFollows', title: '跟进', icon: 'phone' },
+  { table: 'suggestions', name: 'BusinessSuggestions', title: '建议', icon: 'message' },
+  { table: 'messages', name: 'BusinessMessages', title: '消息', icon: 'email' },
+  { table: 'settings', name: 'BusinessSettings', title: '设置', icon: 'system' }
+]
+
 export const constantRoutes = [
   {
     path: '/redirect',
@@ -88,16 +107,21 @@ export const constantRoutes = [
   {
     path: '/business',
     component: Layout,
-    redirect: '/business/sqms',
+    redirect: '/business/customers',
     alwaysShow: true,
     name: 'Business',
     meta: { title: '业务管理', icon: 'table' },
     children: [
+      ...businessModuleRoutes.map(item => ({
+        path: item.table,
+        component: () => import('@/views/business/sqms/index'),
+        name: item.name,
+        meta: { title: item.title, icon: item.icon }
+      })),
       {
         path: 'sqms',
-        component: () => import('@/views/business/sqms/index'),
-        name: 'SqmsBusiness',
-        meta: { title: '业务数据', icon: 'list' }
+        redirect: '/business/customers',
+        hidden: true
       }
     ]
   }

@@ -12,37 +12,10 @@
       </el-space>
     </div>
 
-    <div class="module-groups">
-      <section v-for="group in moduleGroups" :key="group.title" class="module-group">
-        <div class="module-group__title">{{ group.title }}</div>
-        <div class="module-grid">
-          <button
-            v-for="item in group.children"
-            :key="item.table"
-            type="button"
-            class="module-tile"
-            :class="{ active: activeTable === item.table }"
-            @click="selectTable(item.table)"
-          >
-            <span class="module-tile__name">{{ item.shortTitle }}</span>
-            <span class="module-tile__desc">{{ item.navDesc }}</span>
-            <strong>{{ formatCount(item.table) }}</strong>
-          </button>
-        </div>
-      </section>
-    </div>
-
     <div class="toolbar-panel">
       <el-form :model="queryParams" ref="queryRef" :inline="true" v-show="showSearch" class="sqms-query">
         <el-form-item label="当前模块">
-          <el-select v-model="activeTable" filterable style="width: 220px" @change="handleTableChange">
-            <el-option
-              v-for="item in tableOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
+          <el-tag type="primary" effect="plain" size="large">{{ activeMeta.title }}</el-tag>
         </el-form-item>
         <el-form-item label="关键词" prop="keyword">
           <el-input
@@ -855,13 +828,23 @@ const { proxy } = getCurrentInstance()
 const route = useRoute()
 const router = useRouter()
 
-const tableOptions = sqmsTables.map(value => ({
-  value,
-  label: `${tableConfigs[value]?.shortTitle || value}（${value}）`
-}))
+const businessPathPrefix = '/business/'
 
-const routeTable = typeof route.query.table === 'string' ? route.query.table : ''
-const defaultTable = sqmsTables.includes(routeTable) ? routeTable : 'customers'
+function readRouteTable() {
+  const pathTable = route.path.startsWith(businessPathPrefix)
+    ? route.path.slice(businessPathPrefix.length).split('/')[0]
+    : ''
+  const queryTable = typeof route.query.table === 'string' ? route.query.table : ''
+  return [pathTable, queryTable].find(table => sqmsTables.includes(table)) || ''
+}
+
+function cleanBusinessQuery() {
+  const next = { ...route.query }
+  delete next.table
+  return next
+}
+
+const defaultTable = readRouteTable() || 'customers'
 const activeTable = ref(defaultTable)
 const rows = ref([])
 const loading = ref(false)
@@ -928,8 +911,25 @@ const displayColumns = computed(() => {
 })
 
 watch(activeTable, table => {
-  router.replace({ query: { ...route.query, table } })
-})
+  if (!sqmsTables.includes(table)) {
+    return
+  }
+  const targetPath = `${businessPathPrefix}${table}`
+  if (route.path !== targetPath) {
+    router.replace({ path: targetPath, query: cleanBusinessQuery() })
+  }
+}, { immediate: true })
+
+watch(
+  () => [route.path, route.query.table],
+  () => {
+    const routeTable = readRouteTable()
+    if (routeTable && routeTable !== activeTable.value) {
+      activeTable.value = routeTable
+      handleTableChange()
+    }
+  }
+)
 
 function buildModuleItem(table) {
   const config = tableConfigs[table]
@@ -1566,7 +1566,6 @@ function handleExportQuoteTemplate() {
 
 onMounted(() => {
   getList()
-  refreshCounts()
 })
 </script>
 
