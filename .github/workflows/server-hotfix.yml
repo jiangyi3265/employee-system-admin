@@ -97,8 +97,8 @@ jobs:
                 # codex-sqms-proxy-end
             EOF
 
-            insert_block_before_last_brace "/www/server/panel/vhost/nginx/glht.oksja.cn.conf" "codex-prod-api-proxy-start" "codex-prod-api-proxy-end" "$admin_block"
-            insert_block_before_last_brace "/www/server/panel/vhost/nginx/gl.oksja.cn.conf" "codex-sqms-proxy-start" "codex-sqms-proxy-end" "$frontend_block"
+            insert_block_before_last_brace "/www/server/panel/vhost/nginx/st.wsh1798.cn.conf" "codex-prod-api-proxy-start" "codex-prod-api-proxy-end" "$admin_block"
+            insert_block_before_last_brace "/www/server/panel/vhost/nginx/www.wsh1798.cn.conf" "codex-sqms-proxy-start" "codex-sqms-proxy-end" "$frontend_block"
             rm -f "$admin_block" "$frontend_block"
 
             spa_block="$(mktemp)"
@@ -114,7 +114,7 @@ jobs:
               echo "python3/python command not found"
               exit 1
             fi
-            "$python_bin" - "/www/server/panel/vhost/nginx/glht.oksja.cn.conf" "$spa_block" <<'PY'
+            "$python_bin" - "/www/server/panel/vhost/nginx/st.wsh1798.cn.conf" "$spa_block" <<'PY'
             from pathlib import Path
             import re
             import sys
@@ -169,8 +169,8 @@ jobs:
             PY
             rm -f "$spa_block"
 
-            if [ -d "/www/wwwroot/gl.oksja.cn" ]; then
-              grep -Rsl "http://localhost:8080" "/www/wwwroot/gl.oksja.cn" | while IFS= read -r file; do
+            if [ -d "/www/wwwroot/www.wsh1798.cn" ]; then
+              grep -Rsl "http://localhost:8080" "/www/wwwroot/www.wsh1798.cn" | while IFS= read -r file; do
                 sed -i 's#http://localhost:8080##g' "$file"
                 echo "patched frontend api base in $file"
               done

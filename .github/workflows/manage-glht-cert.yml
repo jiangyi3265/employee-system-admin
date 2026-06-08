@@ -1,14 +1,14 @@
-name: Manage glht.oksja.cn certificate
+name: Manage st.wsh1798.cn certificate
 
 on:
   workflow_dispatch:
 
 env:
-  DOMAIN: glht.oksja.cn
-  WEBROOT: /www/wwwroot/glht.oksja.cn
-  NGINX_CONF: /www/server/panel/vhost/nginx/glht.oksja.cn.conf
-  BT_CERT_DIR: /www/server/panel/vhost/cert/glht.oksja.cn
-  CERT_EMAIL: admin@oksja.cn
+  DOMAIN: st.wsh1798.cn
+  WEBROOT: /www/wwwroot/st.wsh1798.cn
+  NGINX_CONF: /www/server/panel/vhost/nginx/st.wsh1798.cn.conf
+  BT_CERT_DIR: /www/server/panel/vhost/cert/st.wsh1798.cn
+  CERT_EMAIL: admin@wsh1798.cn
   BACKEND_PORT: 9090
 
 jobs:
@@ -175,7 +175,7 @@ jobs:
             conf.write_text("\n".join(lines) + "\n", encoding="utf-8")
             PY
 
-            echo "== glht nginx lines =="
+            echo "== st nginx lines =="
             grep -nE "server_name|listen .*443|ssl_certificate|prod-api|proxy_pass" "$CONF" || true
 
             nginx -t

@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  TARGET_DIR: /www/wwwroot/glht.oksja.cn
+  TARGET_DIR: /www/wwwroot/st.wsh1798.cn
   ARCHIVE_NAME: admin-dist.tar.gz
   BACKEND_PORT: 9090
 
@@ -73,7 +73,7 @@ jobs:
             rm -f "$ARCHIVE"
             chown -R www:www "$TARGET_DIR" 2>/dev/null || true
 
-            CONF="/www/server/panel/vhost/nginx/glht.oksja.cn.conf"
+            CONF="/www/server/panel/vhost/nginx/st.wsh1798.cn.conf"
             BACKEND_PORT="${{ env.BACKEND_PORT }}"
             if [ -f "$CONF" ]; then
               BLOCK_FILE="$(mktemp)"
