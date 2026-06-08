@@ -89,6 +89,46 @@ jobs:
                 # codex-prod-api-proxy-end
             EOF
               sed -i '/# codex-prod-api-proxy-start/,/# codex-prod-api-proxy-end/d' "$CONF"
+              PYTHON_BIN="$(command -v python3 || command -v python || true)"
+              if [ -z "$PYTHON_BIN" ]; then
+                echo "python3/python command not found on server"
+                exit 1
+              fi
+              "$PYTHON_BIN" - "$CONF" <<'PY'
+            import re
+            import sys
+            from pathlib import Path
+
+            conf = Path(sys.argv[1])
+            lines = conf.read_text(encoding="utf-8").splitlines()
+
+            def skip_block(source, start):
+                depth = 0
+                saw_open = False
+                i = start
+                while i < len(source):
+                    line = source[i]
+                    depth += line.count("{") - line.count("}")
+                    saw_open = saw_open or "{" in line
+                    i += 1
+                    if saw_open and depth <= 0:
+                        break
+                    if not saw_open and line.strip().endswith(";"):
+                        break
+                return i
+
+            cleaned = []
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                if re.search(r"^\s*location\b(?=[^{;]*prod-api)", line, re.I):
+                    i = skip_block(lines, i)
+                    continue
+                cleaned.append(line)
+                i += 1
+
+            conf.write_text("\n".join(cleaned) + "\n", encoding="utf-8")
+            PY
               TMP_CONF="$(mktemp)"
               awk -v block="$(cat "$BLOCK_FILE")" '
                 { lines[NR] = $0 }
