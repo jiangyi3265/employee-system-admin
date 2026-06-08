@@ -32,23 +32,43 @@ jobs:
                 return 0
               fi
 
-              sed -i "/$start_marker/,/$end_marker/d" "$conf"
-              tmp_conf="$(mktemp)"
-              awk -v block="$(cat "$block_file")" '
-                { lines[NR] = $0 }
-                END {
-                  last = 0
-                  for (i = NR; i >= 1; i--) {
-                    if (lines[i] ~ /^}/) { last = i; break }
-                  }
-                  for (i = 1; i <= NR; i++) {
-                    if (i == last) print block
-                    print lines[i]
-                  }
-                }
-              ' "$conf" > "$tmp_conf"
-              cat "$tmp_conf" > "$conf"
-              rm -f "$tmp_conf"
+              python_bin="$(command -v python3 || command -v python || true)"
+              if [ -z "$python_bin" ]; then
+                echo "python3/python command not found"
+                exit 1
+              fi
+              "$python_bin" - "$conf" "$start_marker" "$end_marker" "$block_file" <<'PY'
+            from pathlib import Path
+            import sys
+
+            conf = Path(sys.argv[1])
+            start_marker = sys.argv[2]
+            end_marker = sys.argv[3]
+            block_file = Path(sys.argv[4])
+
+            lines = conf.read_text(encoding="utf-8").splitlines()
+            cleaned = []
+            skipping = False
+            for line in lines:
+                if start_marker in line:
+                    skipping = True
+                    continue
+                if skipping:
+                    if end_marker in line:
+                        skipping = False
+                    continue
+                cleaned.append(line)
+
+            block = block_file.read_text(encoding="utf-8").rstrip("\n").splitlines()
+            insert_at = len(cleaned)
+            for index in range(len(cleaned) - 1, -1, -1):
+                if cleaned[index].strip() == "}":
+                    insert_at = index
+                    break
+
+            cleaned[insert_at:insert_at] = block
+            conf.write_text("\n".join(cleaned) + "\n", encoding="utf-8")
+            PY
             }
 
             admin_block="$(mktemp)"
