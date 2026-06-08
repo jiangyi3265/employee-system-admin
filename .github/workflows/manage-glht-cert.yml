@@ -1,0 +1,185 @@
+name: Manage glht.oksja.cn certificate
+
+on:
+  workflow_dispatch:
+
+env:
+  DOMAIN: glht.oksja.cn
+  WEBROOT: /www/wwwroot/glht.oksja.cn
+  NGINX_CONF: /www/server/panel/vhost/nginx/glht.oksja.cn.conf
+  BT_CERT_DIR: /www/server/panel/vhost/cert/glht.oksja.cn
+  CERT_EMAIL: admin@oksja.cn
+  BACKEND_PORT: 9090
+
+jobs:
+  certificate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Issue and bind certificate
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: ${{ secrets.SERVER_PORT || '22' }}
+          script_stop: false
+          envs: DOMAIN,WEBROOT,NGINX_CONF,BT_CERT_DIR,CERT_EMAIL,BACKEND_PORT
+          script: |
+            set -e
+
+            DOMAIN="$DOMAIN"
+            WEBROOT="$WEBROOT"
+            CONF="$NGINX_CONF"
+            CERT_DIR="$BT_CERT_DIR"
+            CERT_EMAIL="$CERT_EMAIL"
+            BACKEND_PORT="$BACKEND_PORT"
+
+            echo "domain=$DOMAIN"
+            echo "webroot=$WEBROOT"
+            echo "nginx_conf=$CONF"
+
+            if [ ! -f "$CONF" ]; then
+              echo "Nginx config not found: $CONF"
+              exit 1
+            fi
+            mkdir -p "$WEBROOT/.well-known/acme-challenge"
+            echo "ok" > "$WEBROOT/.well-known/acme-challenge/codex-cert-check.txt"
+
+            if command -v certbot >/dev/null 2>&1; then
+              certbot certonly \
+                --webroot \
+                -w "$WEBROOT" \
+                -d "$DOMAIN" \
+                --email "$CERT_EMAIL" \
+                --agree-tos \
+                --non-interactive \
+                --keep-until-expiring
+
+              mkdir -p "$CERT_DIR"
+              cp -L "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$CERT_DIR/fullchain.pem"
+              cp -L "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$CERT_DIR/privkey.pem"
+            elif [ -x /root/.acme.sh/acme.sh ]; then
+              /root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+              /root/.acme.sh/acme.sh --issue -d "$DOMAIN" -w "$WEBROOT" --server letsencrypt --force
+              mkdir -p "$CERT_DIR"
+              /root/.acme.sh/acme.sh --install-cert -d "$DOMAIN" \
+                --fullchain-file "$CERT_DIR/fullchain.pem" \
+                --key-file "$CERT_DIR/privkey.pem"
+            else
+              echo "Neither certbot nor acme.sh was found on the server"
+              exit 1
+            fi
+
+            chmod 644 "$CERT_DIR/fullchain.pem"
+            chmod 600 "$CERT_DIR/privkey.pem"
+            openssl x509 -in "$CERT_DIR/fullchain.pem" -noout -subject -issuer -dates -ext subjectAltName
+
+            python_bin="$(command -v python3 || command -v python || true)"
+            if [ -z "$python_bin" ]; then
+              echo "python3/python command not found"
+              exit 1
+            fi
+
+            "$python_bin" - "$CONF" "$CERT_DIR/fullchain.pem" "$CERT_DIR/privkey.pem" "$BACKEND_PORT" <<'PY'
+            from pathlib import Path
+            import re
+            import sys
+
+            conf = Path(sys.argv[1])
+            fullchain = sys.argv[2]
+            privkey = sys.argv[3]
+            backend_port = sys.argv[4]
+            lines = conf.read_text(encoding="utf-8").splitlines()
+
+            def skip_block(source, start):
+                depth = 0
+                saw_open = False
+                i = start
+                while i < len(source):
+                    line = source[i]
+                    depth += line.count("{") - line.count("}")
+                    saw_open = saw_open or "{" in line
+                    i += 1
+                    if saw_open and depth <= 0:
+                        break
+                    if not saw_open and line.strip().endswith(";"):
+                        break
+                return i
+
+            cleaned = []
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                if "# codex-prod-api-proxy-start" in line:
+                    i += 1
+                    while i < len(lines) and "# codex-prod-api-proxy-end" not in lines[i]:
+                        i += 1
+                    if i < len(lines):
+                        i += 1
+                    continue
+                if re.search(r"^\s*location\b(?=[^{;]*prod-api)", line, re.I):
+                    i = skip_block(lines, i)
+                    continue
+                cleaned.append(line)
+                i += 1
+
+            text = "\n".join(cleaned) + "\n"
+            cert_line = f"    ssl_certificate {fullchain};"
+            key_line = f"    ssl_certificate_key {privkey};"
+            if not re.search(r"^\s*listen\s+[^;]*443[^;]*;", text, flags=re.M):
+                listen_match = re.search(r"^\s*listen\s+[^;]+;\s*$", text, flags=re.M)
+                if not listen_match:
+                    raise SystemExit("Could not find a listen directive")
+                ssl_lines = [
+                    "    listen 443 ssl http2;",
+                    cert_line,
+                    key_line,
+                    "    ssl_protocols TLSv1.2 TLSv1.3;",
+                    "    ssl_prefer_server_ciphers on;",
+                ]
+                text = text[:listen_match.end()] + "\n" + "\n".join(ssl_lines) + text[listen_match.end():]
+            else:
+                if re.search(r"^\s*ssl_certificate\s+[^;]+;", text, flags=re.M):
+                    text = re.sub(r"^\s*ssl_certificate\s+[^;]+;", cert_line, text, count=1, flags=re.M)
+                else:
+                    server_name = re.search(r"^\s*server_name\s+[^;]+;\s*$", text, flags=re.M)
+                    if not server_name:
+                        raise SystemExit("Could not find server_name")
+                    text = text[:server_name.end()] + "\n" + cert_line + text[server_name.end():]
+
+                if re.search(r"^\s*ssl_certificate_key\s+[^;]+;", text, flags=re.M):
+                    text = re.sub(r"^\s*ssl_certificate_key\s+[^;]+;", key_line, text, count=1, flags=re.M)
+                else:
+                    cert_match = re.search(r"^\s*ssl_certificate\s+[^;]+;\s*$", text, flags=re.M)
+                    text = text[:cert_match.end()] + "\n" + key_line + text[cert_match.end():]
+
+            lines = text.splitlines()
+            block = [
+                "    # codex-prod-api-proxy-start",
+                "    location ^~ /prod-api/ {",
+                "        proxy_set_header Host $host;",
+                "        proxy_set_header X-Real-IP $remote_addr;",
+                "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+                "        proxy_set_header X-Forwarded-Proto $scheme;",
+                f"        proxy_pass http://127.0.0.1:{backend_port}/;",
+                "    }",
+                "    # codex-prod-api-proxy-end",
+            ]
+            insert_at = len(lines)
+            for index in range(len(lines) - 1, -1, -1):
+                if lines[index].strip() == "}":
+                    insert_at = index
+                    break
+            lines[insert_at:insert_at] = block
+            conf.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            PY
+
+            echo "== glht nginx lines =="
+            grep -nE "server_name|listen .*443|ssl_certificate|prod-api|proxy_pass" "$CONF" || true
+
+            nginx -t
+            systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null || true
+            echo "local_captcha=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 http://127.0.0.1:$BACKEND_PORT/captchaImage || true)"
+            echo "http_captcha=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 http://$DOMAIN/prod-api/captchaImage || true)"
+            echo "https_captcha=$(curl -k -s -o /dev/null -w '%{http_code}' --max-time 8 https://$DOMAIN/prod-api/captchaImage || true)"
