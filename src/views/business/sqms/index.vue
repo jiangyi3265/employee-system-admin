@@ -69,17 +69,17 @@
         <el-col :span="1.5">
           <el-button type="danger" plain icon="Delete" :disabled="multiple" @click="handleDelete()">删除</el-button>
         </el-col>
-        <el-col :span="1.5">
+        <el-col :span="1.5" v-if="activeTable !== 'quoteOrders'">
           <el-button type="warning" plain icon="Download" @click="handleExportExcel">导出Excel</el-button>
         </el-col>
         <el-col :span="1.5" v-if="activeTable === 'products'">
           <el-button type="primary" plain icon="Upload" @click="triggerProductImport">导入商品</el-button>
         </el-col>
-        <el-col :span="1.5">
+        <el-col :span="1.5" v-if="activeTable !== 'quoteOrders'">
           <el-button type="info" plain icon="Document" @click="handleExportWord">导出Word</el-button>
         </el-col>
         <el-col :span="1.5" v-if="canExportInquiryTemplate">
-          <el-button type="primary" plain icon="Tickets" @click="handleExportQuoteTemplate">导出询价单模板</el-button>
+          <el-button type="primary" plain icon="Tickets" :disabled="multiple" @click="handleExportQuoteTemplate">导出询价单</el-button>
         </el-col>
         <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
       </el-row>
@@ -1147,6 +1147,7 @@ const moduleGroups = [
 const allModules = moduleGroups.flatMap(group => group.children)
 const allFilterKeys = Array.from(new Set(Object.values(tableConfigs).flatMap(config => (config.filters || []).map(item => item.key))))
 const systemKeys = new Set(['_id', 'id', 'createTime', 'updateTime'])
+const inquiryRowsPerSheet = 18
 
 const { proxy } = getCurrentInstance()
 const route = useRoute()
@@ -1226,7 +1227,7 @@ const activeDetailConfig = computed(() => masterDetailConfigs[activeTable.value]
 const detailMasterFields = computed(() => (activeDetailConfig.value?.fields || []).filter(field => !field.hidden && !isInternalIdKey(field.key)))
 const detailChildColumns = computed(() => activeDetailConfig.value?.childColumns || [])
 const pendingRequestCount = computed(() => rows.value.filter(row => activeTable.value === 'requestOrders' && row.status === 'submitted').length || counts.requestOrdersPending || 0)
-const canExportInquiryTemplate = computed(() => ['quoteOrders', 'requestOrders', 'purchaseOrders'].includes(activeTable.value))
+const canExportInquiryTemplate = computed(() => activeTable.value === 'quoteOrders')
 
 const rules = computed(() => {
   const result = {}
@@ -2485,67 +2486,23 @@ function handleExportWord() {
 }
 
 function handleExportQuoteTemplate() {
+  if (activeTable.value !== 'quoteOrders') {
+    proxy.$modal.msgWarning('询价单模板只支持从报价单导出')
+    return
+  }
   const config = activeDetailConfig.value
   if (!config) {
     proxy.$modal.msgWarning('当前模块没有询价单模板')
     return
   }
-  Promise.all([
-    exportRows(),
-    listSqms(config.childTable, { pageNum: 1, pageSize: 10000 })
-  ]).then(([orders, itemResponse]) => {
-    const allItems = readRows(itemResponse).filter(item => !item.needsAdminReview)
-    if (!orders.length) {
-      proxy.$modal.msgWarning('暂无可导出的询价单')
-      return
-    }
-    const sections = orders.map(order => {
-      const orderId = getRowId(order)
-      const items = allItems.filter(item => String(item[config.foreignKey] || '') === String(orderId || ''))
-      const rowsForPrint = normalizeInquiryRows(items, 18)
-      const bodyRows = rowsForPrint.map((item, index) => `<tr>
-          <td class="serial">${index + 1}</td>
-          <td>${escapeHtmlRaw(item.productName || '')}</td>
-          <td>${escapeHtmlRaw(item.spec || '')}</td>
-          <td class="center">${escapeHtmlRaw(item.unit || '')}</td>
-          <td></td>
-          <td>${escapeHtmlRaw(item.remark || '')}</td>
-        </tr>`).join('')
-      const inquiryDate = dateOnlyText(order.createTime || order.updateTime || Date.now())
-      const inquiryPerson = order.employeeName || order.ownerName || ''
-      return `<section class="inquiry-sheet">
-        <h1>采购物品询价单</h1>
-        <table class="inquiry-table">
-          <colgroup>
-            <col style="width:8%">
-            <col style="width:26%">
-            <col style="width:22%">
-            <col style="width:9%">
-            <col style="width:13%">
-            <col style="width:22%">
-          </colgroup>
-          <thead>
-            <tr>
-              <th colspan="3" class="seal-cell">报价单位名称（盖章）</th>
-              <th colspan="3"></th>
-            </tr>
-            <tr>
-              <th>序号</th>
-              <th>物品名称</th>
-              <th>规格型号</th>
-              <th>单位</th>
-              <th>单价</th>
-              <th>备注</th>
-            </tr>
-          </thead>
-          <tbody>${bodyRows}</tbody>
-        </table>
-        <div class="inquiry-footer">
-          <div>询价日期：${escapeHtmlRaw(inquiryDate)}</div>
-          <div>询价人：${escapeHtmlRaw(inquiryPerson)}</div>
-        </div>
-      </section>`
-    }).join('')
+  const orders = selectedRows.value.filter(row => hasRowId(row))
+  if (!orders.length) {
+    proxy.$modal.msgWarning('请先勾选要导出的报价单')
+    return
+  }
+  listSqms(config.childTable, { pageNum: 1, pageSize: 10000 }).then(itemResponse => {
+    const allItems = readRows(itemResponse).filter(item => !toBoolean(item.needsAdminReview))
+    const sections = buildInquirySheetSections(orders, allItems, config)
     const html = `<!doctype html><html><head><meta charset="utf-8"><style>
       @page{size:A4 portrait;margin:18mm 14mm 20mm;}
       body{font-family:"SimSun","Microsoft YaHei",Arial,sans-serif;color:#000;background:#fff;}
@@ -2561,7 +2518,8 @@ function handleExportQuoteTemplate() {
       .inquiry-footer{display:flex;justify-content:space-between;margin-top:18px;font-size:18px;}
       .inquiry-footer div{min-width:220px;}
     </style></head><body>${sections}</body></html>`
-    downloadTextFile('\ufeff' + html, inquiryTemplateFilename(), 'application/msword;charset=utf-8')
+    downloadTextFile('\ufeff' + html, inquiryTemplateFilename(orders), 'application/msword;charset=utf-8')
+    proxy.$modal.msgSuccess(orders.length === 1 ? '已导出 1 张询价单' : `已合并导出 ${orders.length} 张询价单`)
   })
 }
 
@@ -2571,6 +2529,72 @@ function normalizeInquiryRows(items, minRows) {
     result.push({})
   }
   return result
+}
+
+function buildInquirySheetSections(orders, allItems, config) {
+  return orders.flatMap(order => {
+    const orderId = getRowId(order)
+    const items = allItems.filter(item => String(item[config.foreignKey] || '') === String(orderId || ''))
+    const pages = chunkInquiryItems(items, inquiryRowsPerSheet)
+    return pages.map((pageItems, pageIndex) => renderInquirySheet(order, pageItems, pageIndex * inquiryRowsPerSheet))
+  }).join('')
+}
+
+function chunkInquiryItems(items, size) {
+  if (!items.length) {
+    return [[]]
+  }
+  const pages = []
+  for (let index = 0; index < items.length; index += size) {
+    pages.push(items.slice(index, index + size))
+  }
+  return pages
+}
+
+function renderInquirySheet(order, items, startIndex = 0) {
+  const rowsForPrint = normalizeInquiryRows(items, inquiryRowsPerSheet)
+  const bodyRows = rowsForPrint.map((item, index) => `<tr>
+      <td class="serial">${startIndex + index + 1}</td>
+      <td>${escapeHtmlRaw(item.productName || '')}</td>
+      <td>${escapeHtmlRaw(item.spec || '')}</td>
+      <td class="center">${escapeHtmlRaw(item.unit || '')}</td>
+      <td></td>
+      <td>${escapeHtmlRaw(item.remark || '')}</td>
+    </tr>`).join('')
+  const inquiryDate = dateOnlyText(order.createTime || order.updateTime || Date.now())
+  const inquiryPerson = order.employeeName || order.ownerName || ''
+  return `<section class="inquiry-sheet">
+    <h1>采购物品询价单</h1>
+    <table class="inquiry-table">
+      <colgroup>
+        <col style="width:8%">
+        <col style="width:26%">
+        <col style="width:22%">
+        <col style="width:9%">
+        <col style="width:13%">
+        <col style="width:22%">
+      </colgroup>
+      <thead>
+        <tr>
+          <th colspan="3" class="seal-cell">报价单位名称（盖章）</th>
+          <th colspan="3"></th>
+        </tr>
+        <tr>
+          <th>序号</th>
+          <th>物品名称</th>
+          <th>规格型号</th>
+          <th>单位</th>
+          <th>单价</th>
+          <th>备注</th>
+        </tr>
+      </thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    <div class="inquiry-footer">
+      <div>询价日期：${escapeHtmlRaw(inquiryDate)}</div>
+      <div>询价人：${escapeHtmlRaw(inquiryPerson)}</div>
+    </div>
+  </section>`
 }
 
 function dateOnlyText(value) {
@@ -2584,9 +2608,17 @@ function dateOnlyText(value) {
   return `${year}-${month}-${day}`
 }
 
-function inquiryTemplateFilename() {
+function inquiryTemplateFilename(orders = []) {
   const date = new Date().toISOString().slice(0, 10)
-  return `${activeMeta.value.shortTitle}-采购物品询价单-${date}.doc`
+  if (orders.length === 1) {
+    return `${safeFilenamePart(orders[0].customerName || activeMeta.value.shortTitle)}-采购物品询价单-${date}.doc`
+  }
+  return `${activeMeta.value.shortTitle}-采购物品询价单-${orders.length}张-${date}.doc`
+}
+
+function safeFilenamePart(value) {
+  const text = String(value || '').replace(/[\\/:*?"<>|]/g, '_').trim()
+  return (text || '报价单').slice(0, 50)
 }
 
 onMounted(() => {
