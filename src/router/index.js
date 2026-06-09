@@ -1,6 +1,7 @@
 import { createWebHistory, createRouter } from 'vue-router'
 /* Layout */
 import Layout from '@/layout'
+import ParentView from '@/components/ParentView'
 
 /**
  * Note: 路由配置项
@@ -25,24 +26,18 @@ import Layout from '@/layout'
  */
 
 // 公共路由
-const businessModuleRoutes = [
-  { table: 'employees', name: 'BusinessEmployees', title: '员工', icon: 'user' },
-  { table: 'customers', name: 'BusinessCustomers', title: '客户', icon: 'peoples' },
-  { table: 'products', name: 'BusinessProducts', title: '商品', icon: 'shopping' },
-  { table: 'competitors', name: 'BusinessCompetitors', title: '同行', icon: 'people' },
-  { table: 'suppliers', name: 'BusinessSuppliers', title: '供货商', icon: 'shopping' },
-  { table: 'quoteOrders', name: 'BusinessQuoteOrders', title: '报价单', icon: 'money' },
-  { table: 'quoteItems', name: 'BusinessQuoteItems', title: '报价明细', icon: 'list' },
-  { table: 'requestOrders', name: 'BusinessRequestOrders', title: '接单', icon: 'form' },
-  { table: 'requestItems', name: 'BusinessRequestItems', title: '接单明细', icon: 'table' },
-  { table: 'competitorQuotes', name: 'BusinessCompetitorQuotes', title: '同行报价', icon: 'money' },
-  { table: 'purchaseOrders', name: 'BusinessPurchaseOrders', title: '采购单', icon: 'shopping' },
-  { table: 'purchaseItems', name: 'BusinessPurchaseItems', title: '采购明细', icon: 'list' },
-  { table: 'follows', name: 'BusinessFollows', title: '跟进', icon: 'phone' },
-  { table: 'suggestions', name: 'BusinessSuggestions', title: '建议', icon: 'message' },
-  { table: 'messages', name: 'BusinessMessages', title: '消息', icon: 'email' },
-  { table: 'settings', name: 'BusinessSettings', title: '设置', icon: 'system' }
-]
+function businessLeaf(table, name, title, icon) {
+  return {
+    path: table,
+    component: () => import('@/views/business/sqms/index'),
+    name,
+    meta: { title, icon }
+  }
+}
+
+function businessRedirect(table, target) {
+  return { path: table, redirect: target, hidden: true }
+}
 
 export const constantRoutes = [
   {
@@ -107,20 +102,95 @@ export const constantRoutes = [
   {
     path: '/business',
     component: Layout,
-    redirect: '/business/customers',
+    redirect: '/business/base/products',
     alwaysShow: true,
     name: 'Business',
     meta: { title: '业务管理', icon: 'table' },
     children: [
-      ...businessModuleRoutes.map(item => ({
-        path: item.table,
-        component: () => import('@/views/business/sqms/index'),
-        name: item.name,
-        meta: { title: item.title, icon: item.icon }
-      })),
+      {
+        path: 'base',
+        component: ParentView,
+        redirect: '/business/base/products',
+        alwaysShow: true,
+        name: 'BusinessBase',
+        meta: { title: '基础信息', icon: 'documentation' },
+        children: [
+          businessLeaf('employees', 'BusinessEmployees', '员工', 'user'),
+          businessLeaf('customers', 'BusinessCustomers', '客户', 'peoples'),
+          businessLeaf('products', 'BusinessProducts', '商品', 'shopping'),
+          businessLeaf('competitors', 'BusinessCompetitors', '同行', 'people'),
+          businessLeaf('suppliers', 'BusinessSuppliers', '供货商', 'shopping')
+        ]
+      },
+      {
+        path: 'quote',
+        component: ParentView,
+        redirect: '/business/quote/quoteOrders',
+        alwaysShow: true,
+        name: 'BusinessQuote',
+        meta: { title: '报价接单', icon: 'money' },
+        children: [
+          businessLeaf('quoteOrders', 'BusinessQuoteOrders', '报价单', 'money'),
+          businessLeaf('requestOrders', 'BusinessRequestOrders', '接单', 'form'),
+          businessLeaf('competitorQuotes', 'BusinessCompetitorQuotes', '同行报价', 'chart')
+        ]
+      },
+      {
+        path: 'purchase',
+        component: ParentView,
+        redirect: '/business/purchase/purchaseOrders',
+        alwaysShow: true,
+        name: 'BusinessPurchase',
+        meta: { title: '采购跟进', icon: 'shopping' },
+        children: [
+          businessLeaf('purchaseOrders', 'BusinessPurchaseOrders', '采购', 'shopping'),
+          businessLeaf('follows', 'BusinessFollows', '跟进', 'phone')
+        ]
+      },
+      {
+        path: 'communication',
+        component: ParentView,
+        redirect: '/business/communication/messages',
+        alwaysShow: true,
+        name: 'BusinessCommunication',
+        meta: { title: '沟通配置', icon: 'message' },
+        children: [
+          businessLeaf('suggestions', 'BusinessSuggestions', '建议', 'message'),
+          businessLeaf('messages', 'BusinessMessages', '消息', 'email'),
+          businessLeaf('settings', 'BusinessSettings', '设置', 'system')
+        ]
+      },
+      {
+        path: 'quoteItems',
+        redirect: '/business/quote/quoteOrders',
+        hidden: true
+      },
+      {
+        path: 'requestItems',
+        redirect: '/business/quote/requestOrders',
+        hidden: true
+      },
+      {
+        path: 'purchaseItems',
+        redirect: '/business/purchase/purchaseOrders',
+        hidden: true
+      },
+      businessRedirect('employees', '/business/base/employees'),
+      businessRedirect('customers', '/business/base/customers'),
+      businessRedirect('products', '/business/base/products'),
+      businessRedirect('competitors', '/business/base/competitors'),
+      businessRedirect('suppliers', '/business/base/suppliers'),
+      businessRedirect('quoteOrders', '/business/quote/quoteOrders'),
+      businessRedirect('requestOrders', '/business/quote/requestOrders'),
+      businessRedirect('competitorQuotes', '/business/quote/competitorQuotes'),
+      businessRedirect('purchaseOrders', '/business/purchase/purchaseOrders'),
+      businessRedirect('follows', '/business/purchase/follows'),
+      businessRedirect('suggestions', '/business/communication/suggestions'),
+      businessRedirect('messages', '/business/communication/messages'),
+      businessRedirect('settings', '/business/communication/settings'),
       {
         path: 'sqms',
-        redirect: '/business/customers',
+        redirect: '/business/base/products',
         hidden: true
       }
     ]
