@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-admin-web
+  group: deploy-admin-web-v2
   cancel-in-progress: true
 
 env:
