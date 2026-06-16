@@ -37,7 +37,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install dependencies
         shell: bash
@@ -100,9 +100,9 @@ jobs:
             "$REMOTE_ARCHIVE" \
             "${ADMIN_AFTER_DEPLOY_COMMAND:-}" <<'EOF'
           set -euo pipefail
-          DEPLOY_DIR="$1"
-          REMOTE_ARCHIVE="$2"
-          AFTER_DEPLOY_COMMAND="$3"
+          DEPLOY_DIR="${1:-}"
+          REMOTE_ARCHIVE="${2:-}"
+          AFTER_DEPLOY_COMMAND="${3:-}"
 
           mkdir -p "$DEPLOY_DIR"
           find "$DEPLOY_DIR" -mindepth 1 -maxdepth 1 ! -name ".user.ini" -exec rm -rf {} +
