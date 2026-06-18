@@ -155,9 +155,10 @@
           <span v-else class="sqms-page__cell">{{ formatCell(scope.row[column.prop], column) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="150" align="center" fixed="right" class-name="small-padding fixed-width">
+      <el-table-column label="操作" width="210" align="center" fixed="right" class-name="small-padding fixed-width">
         <template #default="scope">
           <el-button link type="primary" icon="Edit" :disabled="!hasRowId(scope.row)" @click="handleUpdate(scope.row)">编辑</el-button>
+          <el-button v-if="canClearWechat(scope.row)" link type="warning" icon="ChatDotRound" @click="handleClearWechat(scope.row)">清绑</el-button>
           <el-button link type="danger" icon="Delete" :disabled="!hasRowId(scope.row)" @click="handleDelete(scope.row)">删除</el-button>
         </template>
       </el-table-column>
@@ -536,7 +537,7 @@
 <script setup name="SqmsBusiness">
 import { computed, getCurrentInstance, onMounted, reactive, ref, toRefs, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { addSqms, delSqms, getSqms, listSqms, sqmsTables, updateSqms } from '@/api/business/sqms'
+import { addSqms, clearWechatBinding, delSqms, getSqms, listSqms, sqmsTables, updateSqms } from '@/api/business/sqms'
 
 const roleOptions = [
   { label: '管理员', value: 'admin', tag: 'danger' },
@@ -1641,6 +1642,24 @@ function handleDelete(row) {
     proxy.$modal.msgSuccess('删除成功')
     getList()
     refreshCounts()
+  })
+}
+
+function canClearWechat(row) {
+  return (activeTable.value === 'employees' || activeTable.value === 'customers') && !!row && !!row.wechatBindTime && hasRowId(row)
+}
+
+function handleClearWechat(row) {
+  const id = getRowId(row)
+  if (id === undefined) {
+    proxy.$modal.msgError('未找到记录ID，无法清除绑定')
+    return
+  }
+  proxy.$modal.confirm(`是否确认清除「${displayRowName(row) || '该账号'}」的微信绑定？清除后对方需重新绑定。`).then(() => {
+    return clearWechatBinding(activeTable.value, id)
+  }).then(() => {
+    proxy.$modal.msgSuccess('已清除微信绑定')
+    getList()
   })
 }
 

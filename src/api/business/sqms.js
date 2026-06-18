@@ -63,3 +63,12 @@ export function delSqms(table, ids) {
     method: 'delete'
   })
 }
+
+// 管理员强制清除某账号的微信绑定（员工/客户）
+export function clearWechatBinding(table, id) {
+  return request({
+    url: '/sqms/auth/wechat/admin-unbind',
+    method: 'post',
+    data: { table: ensureTable(table), id }
+  })
+}
