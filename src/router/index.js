@@ -144,6 +144,7 @@ export const constantRoutes = [
         meta: { title: '采购跟进', icon: 'shopping' },
         children: [
           businessLeaf('purchaseOrders', 'BusinessPurchaseOrders', '采购', 'shopping'),
+          businessLeaf('purchaseRequests', 'BusinessPurchaseRequests', '采购申请', 'form'),
           businessLeaf('follows', 'BusinessFollows', '跟进', 'phone')
         ]
       },
@@ -175,6 +176,11 @@ export const constantRoutes = [
         redirect: '/business/purchase/purchaseOrders',
         hidden: true
       },
+      {
+        path: 'purchaseRequestItems',
+        redirect: '/business/purchase/purchaseRequests',
+        hidden: true
+      },
       businessRedirect('employees', '/business/base/employees'),
       businessRedirect('customers', '/business/base/customers'),
       businessRedirect('products', '/business/base/products'),
@@ -184,6 +190,7 @@ export const constantRoutes = [
       businessRedirect('requestOrders', '/business/quote/requestOrders'),
       businessRedirect('competitorQuotes', '/business/quote/competitorQuotes'),
       businessRedirect('purchaseOrders', '/business/purchase/purchaseOrders'),
+      businessRedirect('purchaseRequests', '/business/purchase/purchaseRequests'),
       businessRedirect('follows', '/business/purchase/follows'),
       businessRedirect('suggestions', '/business/communication/suggestions'),
       businessRedirect('messages', '/business/communication/messages'),

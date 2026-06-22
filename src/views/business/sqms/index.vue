@@ -595,6 +595,13 @@ const suggestionStatusOptions = [
   { label: '已关闭', value: 'closed', tag: 'info' }
 ]
 
+const purchaseRequestStatusOptions = [
+  { label: '待采购处理', value: 'pending', tag: 'warning' },
+  { label: '已生成预采购', value: 'pre', tag: 'primary' },
+  { label: '已采购', value: 'purchased', tag: 'success' },
+  { label: '已入库', value: 'converted', tag: 'info' }
+]
+
 function col(prop, label, options = {}) {
   return { prop, label, ...options }
 }
@@ -640,6 +647,7 @@ const tableConfigs = {
       col('phone', '手机号', { minWidth: 135 }),
       col('role', '角色', { type: 'status', options: roleOptions, quick: true, minWidth: 125 }),
       col('position', '职位', { minWidth: 130 }),
+      col('isPurchaser', '采购权限', { type: 'boolean', quick: true, minWidth: 110 }),
       col('disabled', '停用', { type: 'boolean', quick: true, minWidth: 100 }),
       col('updateTime', '更新时间', { type: 'time', minWidth: 165 })
     ],
@@ -649,6 +657,7 @@ const tableConfigs = {
       { key: 'password', label: '登录密码', type: 'password' },
       selectField('role', '角色', roleOptions, { default: 'employee' }),
       textField('position', '职位'),
+      switchField('isPurchaser', '采购权限', { tip: '开启后该员工拥有与管理员一致的采购处理权限' }),
       switchField('disabled', '是否停用'),
       textareaField('remark', '备注')
     ],
@@ -984,6 +993,70 @@ const tableConfigs = {
       numberField('freightShare', '分摊运费')
     ]
   },
+  purchaseRequests: {
+    title: '采购申请',
+    shortTitle: '采购申请',
+    navDesc: '成交申报',
+    desc: '查看员工从成交报价或手工提交的采购需求。',
+    tip: '采购申请进入采购员/管理员处理流程，可生成预采购单并通知申请员工。',
+    dialogTip: '来源报价单字段用于追溯由哪个成交报价转入采购申请。',
+    columns: [
+      col('customerName', '需求客户', { minWidth: 150 }),
+      col('employeeName', '申请员工', { minWidth: 130 }),
+      col('supplierName', '默认供货商', { minWidth: 150 }),
+      col('status', '状态', { type: 'status', options: purchaseRequestStatusOptions, quick: true, minWidth: 135 }),
+      col('sourceQuoteOrderId', '来源报价单', { minWidth: 180 }),
+      col('createTime', '申请时间', { type: 'time', minWidth: 165 })
+    ],
+    fields: [
+      textField('customerId', '客户ID', { hidden: true }),
+      entityField('customerName', '需求客户', 'customers', { required: true }),
+      textField('employeeId', '员工ID', { hidden: true }),
+      entityField('employeeName', '申请员工', 'employees'),
+      textField('supplierId', '供货商ID', { hidden: true }),
+      entityField('supplierName', '默认供货商', 'suppliers'),
+      selectField('status', '状态', purchaseRequestStatusOptions, { default: 'pending' }),
+      textField('sourceQuoteOrderId', '来源报价单ID')
+    ],
+    filters: [
+      { key: 'status', label: '状态', options: purchaseRequestStatusOptions }
+    ]
+  },
+  purchaseRequestItems: {
+    title: '采购申请明细',
+    shortTitle: '申请明细',
+    navDesc: '待采商品',
+    desc: '维护采购申请中的商品、数量、采购价和来源成交报价明细。',
+    tip: '申请明细只应来自手工添加或已标记成交的报价明细。',
+    dialogTip: 'sourceQuoteItemId 可防止同一成交报价明细重复申报采购。',
+    columns: [
+      col('productName', '商品', { minWidth: 220 }),
+      col('spec', '规格', { minWidth: 150 }),
+      col('customerName', '需求客户', { minWidth: 140 }),
+      col('supplierName', '供货商', { minWidth: 150 }),
+      col('qty', '数量', { type: 'number', minWidth: 90 }),
+      col('purchasePrice', '采购价', { type: 'money', minWidth: 110 }),
+      col('status', '状态', { type: 'status', options: purchaseRequestStatusOptions, quick: true, minWidth: 135 })
+    ],
+    fields: [
+      textField('requestId', '采购申请ID', { required: true, hidden: true }),
+      textField('productId', '商品ID', { hidden: true }),
+      entityField('productName', '商品名称', 'products', { required: true }),
+      textField('spec', '规格'),
+      textField('customerId', '客户ID', { hidden: true }),
+      entityField('customerName', '需求客户', 'customers'),
+      textField('supplierId', '供货商ID', { hidden: true }),
+      entityField('supplierName', '供货商', 'suppliers'),
+      numberField('qty', '数量', { precision: 0, default: 1 }),
+      numberField('purchasePrice', '采购价'),
+      selectField('status', '状态', purchaseRequestStatusOptions, { default: 'pending' }),
+      textField('sourceQuoteOrderId', '来源报价单ID'),
+      textField('sourceQuoteItemId', '来源报价明细ID')
+    ],
+    filters: [
+      { key: 'status', label: '状态', options: purchaseRequestStatusOptions }
+    ]
+  },
   follows: {
     title: '跟进记录',
     shortTitle: '跟进',
@@ -1141,7 +1214,7 @@ const masterDetailConfigs = {
 const moduleGroups = [
   { title: '基础信息', children: ['employees', 'customers', 'products', 'competitors', 'suppliers'].map(buildModuleItem) },
   { title: '报价接单', children: ['quoteOrders', 'requestOrders', 'competitorQuotes'].map(buildModuleItem) },
-  { title: '采购跟进', children: ['purchaseOrders', 'follows'].map(buildModuleItem) },
+  { title: '采购跟进', children: ['purchaseOrders', 'purchaseRequests', 'follows'].map(buildModuleItem) },
   { title: '沟通配置', children: ['suggestions', 'messages', 'settings'].map(buildModuleItem) }
 ]
 
@@ -1444,6 +1517,7 @@ function businessRoutePath(table) {
     requestOrders: 'quote',
     competitorQuotes: 'quote',
     purchaseOrders: 'purchase',
+    purchaseRequests: 'purchase',
     follows: 'purchase',
     suggestions: 'communication',
     messages: 'communication',

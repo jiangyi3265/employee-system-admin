@@ -13,6 +13,8 @@ export const sqmsTables = [
   'competitors',
   'purchaseOrders',
   'purchaseItems',
+  'purchaseRequests',
+  'purchaseRequestItems',
   'follows',
   'suggestions',
   'messages',
