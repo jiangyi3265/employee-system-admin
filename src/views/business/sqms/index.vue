@@ -1710,13 +1710,24 @@ function handleDelete(row) {
     return
   }
   const names = (row ? [row] : selectedRows.value).map(item => displayRowName(item)).filter(Boolean)
-  proxy.$modal.confirm(`是否确认删除 ${validIds.length} 条${activeMeta.value.shortTitle}记录${names.length ? `：${names.join('、')}` : ''}？`).then(() => {
+  const cascadeNotice = deleteCascadeNotice(activeTable.value)
+  proxy.$modal.confirm(`是否确认删除 ${validIds.length} 条${activeMeta.value.shortTitle}记录${names.length ? `：${names.join('、')}` : ''}？${cascadeNotice}`).then(() => {
     return delSqms(activeTable.value, validIds.join(','))
   }).then(() => {
     proxy.$modal.msgSuccess('删除成功')
     getList()
     refreshCounts()
   })
+}
+
+function deleteCascadeNotice(table) {
+  if (table === 'customers') {
+    return '\n\n删除客户会同步删除该客户的报价单、报价明细、客户报价申请、申请明细、跟进、建议/投诉、相关消息和客户来源同行报价；采购单、采购申请和采购明细会保留。'
+  }
+  if (table === 'competitors') {
+    return '\n\n删除同行会同步删除该同行的同行报价。'
+  }
+  return ''
 }
 
 function canClearWechat(row) {
