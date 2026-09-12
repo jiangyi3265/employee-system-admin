@@ -653,8 +653,8 @@ const tableConfigs = {
     ],
     fields: [
       textField('name', '姓名', { required: true }),
-      textField('phone', '手机号'),
-      { key: 'password', label: '登录密码', type: 'password' },
+      textField('phone', '手机号', { required: true }),
+      { key: 'password', label: '登录密码', type: 'password', requiredOnCreate: true, placeholder: '新增员工必填；编辑时留空则不修改' },
       selectField('role', '角色', roleOptions, { default: 'employee' }),
       textField('position', '职位'),
       switchField('isPurchaser', '采购权限', { tip: '开启后该员工拥有与管理员一致的采购处理权限' }),
@@ -1306,7 +1306,7 @@ const canExportInquiryTemplate = computed(() => activeTable.value === 'quoteOrde
 const rules = computed(() => {
   const result = {}
   formFields.value.forEach(field => {
-    if (field.required) {
+    if (field.required || (field.requiredOnCreate && formId.value === undefined)) {
       result[field.key] = [
         { required: true, message: `${field.type === 'select' ? '请选择' : '请输入'}${field.label}`, trigger: field.type === 'select' ? 'change' : 'blur' }
       ]
@@ -1781,6 +1781,9 @@ function saveForm() {
 
   if (formId.value !== undefined) {
     payload._id = formId.value
+    if ((activeTable.value === 'employees' || activeTable.value === 'customers') && !payload.password) {
+      delete payload.password
+    }
   }
 
   if (activeTable.value === 'products' && payload.purchasePrice !== null && payload.purchasePrice !== undefined && payload.purchasePrice !== '') {
