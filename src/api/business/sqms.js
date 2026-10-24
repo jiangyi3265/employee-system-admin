@@ -51,6 +51,13 @@ export function addSqms(table, data) {
   })
 }
 
+// The import plan supplies stable IDs. The backend upserts by ID, so a lost
+// acknowledgement can be retried without inserting the product a second time.
+export function importSqmsProduct(data) {
+  if (!data?._id) throw new Error('导入商品缺少稳定编号，请重新选择文件')
+  return request({ url: '/sqms/products', method: 'post', data, headers: { repeatSubmit: false } })
+}
+
 export function updateSqms(table, id, data) {
   return request({
     url: `/sqms/${ensureTable(table)}/${id}`,

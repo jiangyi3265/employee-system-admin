@@ -69,17 +69,14 @@
         <el-col :span="1.5">
           <el-button type="danger" plain icon="Delete" :disabled="multiple" @click="handleDelete()">删除</el-button>
         </el-col>
-        <el-col :span="1.5" v-if="activeTable !== 'quoteOrders'">
-          <el-button type="warning" plain icon="Download" @click="handleExportExcel">导出Excel</el-button>
+        <el-col :span="1.5">
+          <el-button type="warning" plain icon="Download" :loading="quoteExporting" :disabled="activeTable === 'quoteOrders' && (multiple || quoteExporting)" @click="handleExportExcel">导出Excel</el-button>
         </el-col>
         <el-col :span="1.5" v-if="activeTable === 'products'">
-          <el-button type="primary" plain icon="Upload" @click="triggerProductImport">导入商品</el-button>
+          <el-button type="primary" plain icon="Upload" :loading="productImportReading" :disabled="productImportBusy" @click="triggerProductImport">导入商品</el-button>
         </el-col>
-        <el-col :span="1.5" v-if="activeTable !== 'quoteOrders'">
-          <el-button type="info" plain icon="Document" @click="handleExportWord">导出Word</el-button>
-        </el-col>
-        <el-col :span="1.5" v-if="canExportInquiryTemplate">
-          <el-button type="primary" plain icon="Tickets" :disabled="multiple" @click="handleExportQuoteTemplate">导出询价单</el-button>
+        <el-col :span="1.5">
+          <el-button type="info" plain icon="Document" :loading="quoteExporting" :disabled="activeTable === 'quoteOrders' && (multiple || quoteExporting)" @click="handleExportWord">导出Word</el-button>
         </el-col>
         <right-toolbar v-model:showSearch="showSearch" @queryTable="getList"></right-toolbar>
       </el-row>
@@ -524,6 +521,25 @@
       </div>
     </el-dialog>
 
+    <el-dialog v-model="productImportVisible" title="批量导入商品" width="780px" :close-on-click-modal="false" :close-on-press-escape="!productImportBusy" :show-close="!productImportBusy">
+      <p>支持本系统导出的 CSV，以及 Excel 保存的 UTF-8 / GBK CSV。采购价可带 ￥；文件中的成本价和销售价格会保留。</p>
+      <p>共 {{ productImportPlan.length }} 条：新增 {{ productImportPlan.filter(item => item.kind === 'add').length }} 条，更新 {{ productImportPlan.filter(item => item.kind === 'update').length }} 条。更新按商品编号匹配；旧文件按名称、规格、品牌匹配。</p>
+      <el-progress v-if="productImportStarted" :percentage="productImportPlan.length ? Math.round(productImportPlan.filter(item => item.done).length / productImportPlan.length * 100) : 0" />
+      <p v-if="productImportSummary" role="status">{{ productImportSummary }}</p>
+      <el-table :data="productImportPlan.slice(0, 100)" max-height="350" border>
+        <el-table-column prop="line" label="文件行" width="75" />
+        <el-table-column prop="record.name" label="商品名称" min-width="160" />
+        <el-table-column prop="record.spec" label="规格" width="100" />
+        <el-table-column prop="record.purchasePrice" label="采购价" width="90" />
+        <el-table-column label="状态" min-width="180"><template #default="scope">{{ scope.row.done ? '已入库' : scope.row.error || (scope.row.kind === 'update' ? '待更新' : '待新增') }}</template></el-table-column>
+      </el-table>
+      <p v-if="productImportPlan.length > 100">预览前 100 条，确认后导入全部 {{ productImportPlan.length }} 条。</p>
+      <p class="import-error" v-for="item in productImportPlan.filter(item => item.error).slice(0, 20)" :key="item.line">第 {{ item.line }} 行 {{ item.record.name }}：{{ item.error }}</p>
+      <template #footer>
+        <el-button :disabled="productImportBusy" @click="productImportVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="productImportBusy" :disabled="!productImportPlan.some(item => !item.done)" @click="confirmProductImport">{{ productImportStarted ? '重试未完成项' : '确认导入' }}</el-button>
+      </template>
+    </el-dialog>
     <input
       ref="productImportRef"
       class="hidden-file-input"
@@ -537,7 +553,9 @@
 <script setup name="SqmsBusiness">
 import { computed, getCurrentInstance, onMounted, reactive, ref, toRefs, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { addSqms, clearWechatBinding, delSqms, getSqms, listSqms, sqmsTables, updateSqms } from '@/api/business/sqms'
+import { addSqms, clearWechatBinding, delSqms, getSqms, listSqms, sqmsTables, updateSqms, importSqmsProduct } from '@/api/business/sqms'
+import { buildQuoteDocument, createQuoteFile } from '@/utils/quote-document.js'
+import { decodeProductFile, parseProductImport, planProductImport, executeProductImport, exportProductsCsv, fetchAllRows } from '@/utils/product-transfer.js'
 
 const roleOptions = [
   { label: '管理员', value: 'admin', tag: 'danger' },
@@ -1221,7 +1239,7 @@ const moduleGroups = [
 const allModules = moduleGroups.flatMap(group => group.children)
 const allFilterKeys = Array.from(new Set(Object.values(tableConfigs).flatMap(config => (config.filters || []).map(item => item.key))))
 const systemKeys = new Set(['_id', 'id', 'createTime', 'updateTime'])
-const inquiryRowsPerSheet = 18
+const quoteExporting = ref(false)
 
 const { proxy } = getCurrentInstance()
 const route = useRoute()
@@ -1264,6 +1282,12 @@ const extraJson = ref('{}')
 const advancedPanels = ref([])
 const submitting = ref(false)
 const productImportRef = ref()
+const productImportReading = ref(false)
+const productImportBusy = ref(false)
+const productImportVisible = ref(false)
+const productImportStarted = ref(false)
+const productImportPlan = ref([])
+const productImportSummary = ref('')
 const detailOpen = ref(false)
 const detailFormRef = ref()
 const detailForm = ref({})
@@ -1301,7 +1325,6 @@ const activeDetailConfig = computed(() => masterDetailConfigs[activeTable.value]
 const detailMasterFields = computed(() => (activeDetailConfig.value?.fields || []).filter(field => !field.hidden && !isInternalIdKey(field.key)))
 const detailChildColumns = computed(() => activeDetailConfig.value?.childColumns || [])
 const pendingRequestCount = computed(() => rows.value.filter(row => activeTable.value === 'requestOrders' && row.status === 'submitted').length || counts.requestOrdersPending || 0)
-const canExportInquiryTemplate = computed(() => activeTable.value === 'quoteOrders')
 
 const rules = computed(() => {
   const result = {}
@@ -2393,11 +2416,9 @@ function sortColumnKeys(a, b) {
 }
 
 function exportRows() {
-  return listSqms(activeTable.value, {
-    ...queryParams.value,
-    pageNum: 1,
-    pageSize: 10000
-  }).then(response => readRows(response))
+  const table = activeTable.value
+  const filters = { ...queryParams.value }
+  return fetchAllRows((pageNum, pageSize) => listSqms(table, { ...filters, pageNum, pageSize }))
 }
 
 function csvCell(value) {
@@ -2438,123 +2459,50 @@ function formatExportCell(row, prop) {
 }
 
 function triggerProductImport() {
-  productImportRef.value?.click()
+  if (!productImportBusy.value && !productImportReading.value) productImportRef.value?.click()
 }
 
-function handleProductImport(event) {
+async function handleProductImport(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
-  if (!file) {
-    return
-  }
-  const reader = new FileReader()
-  reader.onload = () => {
-    try {
-      const records = parseProductImport(String(reader.result || ''))
-      if (!records.length) {
-        proxy.$modal.msgWarning('没有可导入的商品数据')
-        return
-      }
-      Promise.all(records.map(record => addSqms('products', record))).then(() => {
-        proxy.$modal.msgSuccess(`已导入 ${records.length} 个商品`)
-        loadEntityOptions()
-        getList()
-      })
-    } catch (error) {
-      proxy.$modal.msgError(error.message)
-    }
-  }
-  reader.readAsText(file, 'utf-8')
+  if (!file || productImportBusy.value || productImportReading.value) return
+  productImportReading.value = true
+  try {
+    const entries = parseProductImport(decodeProductFile(await file.arrayBuffer()))
+    if (!entries.length) return proxy.$modal.msgWarning('没有可导入的商品数据')
+    const existing = await fetchAllRows((pageNum, pageSize) => listSqms('products', { pageNum, pageSize }))
+    productImportPlan.value = planProductImport(entries, existing, calculateProductPrices, () => generateRecordId('products'))
+    productImportSummary.value = ''
+    productImportStarted.value = false
+    productImportVisible.value = true
+  } catch (error) {
+    proxy.$modal.msgError(error.message || '文件读取失败，请选择 CSV 文件')
+  } finally { productImportReading.value = false }
 }
 
-function parseProductImport(text) {
-  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-  if (lines.length < 2) {
-    return []
+async function confirmProductImport() {
+  if (productImportBusy.value) return
+  productImportBusy.value = true
+  productImportStarted.value = true
+  const updateProgress = () => {
+    productImportSummary.value = `服务器已确认 ${productImportPlan.value.filter(item => item.done).length} / ${productImportPlan.value.length} 条`
   }
-  const headers = splitDelimitedLine(lines[0]).map(normalizeImportHeader)
-  const records = []
-  lines.slice(1).forEach((line, index) => {
-    const values = splitDelimitedLine(line)
-    const row = {}
-    headers.forEach((key, i) => {
-      if (key) row[key] = values[i] ?? ''
-    })
-    const name = String(row.name || '').trim()
-    const spec = String(row.spec || '').trim()
-    const purchasePrice = Number(row.purchasePrice)
-    if (!name || !spec || !Number.isFinite(purchasePrice)) {
-      throw new Error(`第 ${index + 2} 行缺少商品名称、规格或采购价`)
-    }
-    records.push({
-      _id: generateRecordId('products'),
-      name,
-      spec,
-      brand: row.brand || '',
-      category: row.category || '',
-      attr1: row.attr1 || '',
-      attr2: row.attr2 || '',
-      unitSmall: '个',
-      unitMedium: '包',
-      unitLarge: '箱',
-      mediumToSmall: 12,
-      largeToMedium: 12,
-      stock: 0,
-      ...calculateProductPrices(purchasePrice)
-    })
-  })
-  return records
-}
-
-function splitDelimitedLine(line) {
-  const delimiter = line.includes('\t') ? '\t' : ','
-  const result = []
-  let current = ''
-  let quoted = false
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i]
-    if (char === '"') {
-      if (quoted && line[i + 1] === '"') {
-        current += '"'
-        i += 1
-      } else {
-        quoted = !quoted
-      }
-    } else if (char === delimiter && !quoted) {
-      result.push(current.trim())
-      current = ''
-    } else {
-      current += char
-    }
-  }
-  result.push(current.trim())
-  return result
-}
-
-function normalizeImportHeader(header) {
-  const key = String(header || '').trim().toLowerCase()
-  const map = {
-    名称: 'name',
-    商品名称: 'name',
-    name: 'name',
-    规格: 'spec',
-    spec: 'spec',
-    品牌: 'brand',
-    brand: 'brand',
-    分类: 'category',
-    category: 'category',
-    采购价: 'purchasePrice',
-    purchaseprice: 'purchasePrice',
-    一级属性: 'attr1',
-    attr1: 'attr1',
-    二级属性: 'attr2',
-    attr2: 'attr2'
-  }
-  return map[key] || ''
+  try {
+    const result = await executeProductImport(productImportPlan.value, item => importSqmsProduct(item.record), updateProgress)
+    productImportSummary.value = `已入库 ${result.succeeded} 条，未完成 ${result.failed} 条。` + (result.failed ? '可重试未完成项，已成功的不会重复提交。' : '导入完成。')
+    if (!result.failed) proxy.$modal.msgSuccess(`已导入 ${result.succeeded} 个商品`)
+    loadEntityOptions()
+    if (activeTable.value === 'products') getList()
+  } finally { productImportBusy.value = false }
 }
 
 function handleExportExcel() {
+  if (activeTable.value === 'quoteOrders') return handleExportQuoteTemplate('xlsx')
   exportRows().then(list => {
+    if (activeTable.value === 'products') {
+      downloadTextFile(exportProductsCsv(list), exportFilename('csv'), 'text/csv;charset=utf-8')
+      return
+    }
     const cols = exportColumns(list)
     if (!cols.length) {
       proxy.$modal.msgWarning('暂无可导出的数据')
@@ -2569,6 +2517,7 @@ function handleExportExcel() {
 }
 
 function handleExportWord() {
+  if (activeTable.value === 'quoteOrders') return handleExportQuoteTemplate('docx')
   exportRows().then(list => {
     const cols = exportColumns(list)
     if (!cols.length) {
@@ -2592,142 +2541,32 @@ function handleExportWord() {
   })
 }
 
-function handleExportQuoteTemplate() {
-  if (activeTable.value !== 'quoteOrders') {
-    proxy.$modal.msgWarning('询价单模板只支持从报价单导出')
-    return
+async function handleExportQuoteTemplate(format) {
+  if (quoteExporting.value) return
+  const orders = selectedRows.value.filter(row => hasRowId(row)).map(row => ({ ...row, _id: getRowId(row) }))
+  if (!orders.length) return proxy.$modal.msgWarning('请先勾选要导出的报价单')
+  quoteExporting.value = true
+  try {
+    // Fetch all detail pages; a large history must not silently truncate the export.
+    const allItems = []
+    for (let pageNum = 1; ; pageNum++) {
+      const response = await listSqms('quoteItems', { pageNum, pageSize: 1000 })
+      const rows = readRows(response)
+      allItems.push(...rows)
+      const total = Number(response.total ?? response.data?.total)
+      if ((Number.isFinite(total) && allItems.length >= total) || (!Number.isFinite(total) && rows.length < 1000)) break
+      if (!rows.length) throw new Error('报价明细读取不完整，请刷新后重试')
+    }
+    const documents = orders.map(order => buildQuoteDocument(order, allItems))
+    const file = createQuoteFile(documents, format)
+    downloadTextFile(file.bytes, file.name, file.mime)
+    proxy.$modal.msgSuccess(`已导出 ${orders.length} 张采购物资报价单`)
+  } catch (error) {
+    proxy.$modal.msgError(error.message || '报价单导出失败，请重试')
+  } finally {
+    quoteExporting.value = false
   }
-  const config = activeDetailConfig.value
-  if (!config) {
-    proxy.$modal.msgWarning('当前模块没有询价单模板')
-    return
-  }
-  const orders = selectedRows.value.filter(row => hasRowId(row))
-  if (!orders.length) {
-    proxy.$modal.msgWarning('请先勾选要导出的报价单')
-    return
-  }
-  listSqms(config.childTable, { pageNum: 1, pageSize: 10000 }).then(itemResponse => {
-    const allItems = readRows(itemResponse).filter(item => !toBoolean(item.needsAdminReview))
-    const sections = buildInquirySheetSections(orders, allItems, config)
-    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
-      @page{size:A4 portrait;margin:18mm 14mm 20mm;}
-      body{font-family:"SimSun","Microsoft YaHei",Arial,sans-serif;color:#000;background:#fff;}
-      .inquiry-sheet{width:100%;max-width:760px;margin:0 auto 26px;page-break-after:always;}
-      .inquiry-sheet:last-child{page-break-after:auto;}
-      h1{margin:0 0 8px;text-align:center;font-size:24px;font-weight:500;letter-spacing:0;}
-      .inquiry-table{width:100%;border-collapse:collapse;table-layout:fixed;border:2px solid #000;}
-      .inquiry-table th,.inquiry-table td{border:1px solid #000;height:34px;padding:4px 6px;font-size:16px;line-height:1.2;vertical-align:middle;word-break:break-all;}
-      .inquiry-table thead th{font-weight:600;text-align:center;}
-      .inquiry-table .seal-cell{height:30px;font-weight:600;}
-      .inquiry-table tbody td{height:37px;font-weight:400;}
-      .serial,.center{text-align:center;}
-      .inquiry-footer{display:flex;justify-content:space-between;margin-top:18px;font-size:18px;}
-      .inquiry-footer div{min-width:220px;}
-    </style></head><body>${sections}</body></html>`
-    downloadTextFile('\ufeff' + html, inquiryTemplateFilename(orders), 'application/msword;charset=utf-8')
-    proxy.$modal.msgSuccess(orders.length === 1 ? '已导出 1 张询价单' : `已合并导出 ${orders.length} 张询价单`)
-  })
 }
-
-function normalizeInquiryRows(items, minRows) {
-  const result = [...items.map(item => ({ ...item }))]
-  while (result.length < minRows) {
-    result.push({})
-  }
-  return result
-}
-
-function buildInquirySheetSections(orders, allItems, config) {
-  return orders.flatMap(order => {
-    const orderId = getRowId(order)
-    const items = allItems.filter(item => String(item[config.foreignKey] || '') === String(orderId || ''))
-    const pages = chunkInquiryItems(items, inquiryRowsPerSheet)
-    return pages.map((pageItems, pageIndex) => renderInquirySheet(order, pageItems, pageIndex * inquiryRowsPerSheet))
-  }).join('')
-}
-
-function chunkInquiryItems(items, size) {
-  if (!items.length) {
-    return [[]]
-  }
-  const pages = []
-  for (let index = 0; index < items.length; index += size) {
-    pages.push(items.slice(index, index + size))
-  }
-  return pages
-}
-
-function renderInquirySheet(order, items, startIndex = 0) {
-  const rowsForPrint = normalizeInquiryRows(items, inquiryRowsPerSheet)
-  const bodyRows = rowsForPrint.map((item, index) => `<tr>
-      <td class="serial">${startIndex + index + 1}</td>
-      <td>${escapeHtmlRaw(item.productName || '')}</td>
-      <td>${escapeHtmlRaw(item.spec || '')}</td>
-      <td class="center">${escapeHtmlRaw(item.unit || '')}</td>
-      <td></td>
-      <td>${escapeHtmlRaw(item.remark || '')}</td>
-    </tr>`).join('')
-  const inquiryDate = dateOnlyText(order.createTime || order.updateTime || Date.now())
-  const inquiryPerson = order.employeeName || order.ownerName || ''
-  return `<section class="inquiry-sheet">
-    <h1>采购物品询价单</h1>
-    <table class="inquiry-table">
-      <colgroup>
-        <col style="width:8%">
-        <col style="width:26%">
-        <col style="width:22%">
-        <col style="width:9%">
-        <col style="width:13%">
-        <col style="width:22%">
-      </colgroup>
-      <thead>
-        <tr>
-          <th colspan="3" class="seal-cell">报价单位名称（盖章）</th>
-          <th colspan="3"></th>
-        </tr>
-        <tr>
-          <th>序号</th>
-          <th>物品名称</th>
-          <th>规格型号</th>
-          <th>单位</th>
-          <th>单价</th>
-          <th>备注</th>
-        </tr>
-      </thead>
-      <tbody>${bodyRows}</tbody>
-    </table>
-    <div class="inquiry-footer">
-      <div>询价日期：${escapeHtmlRaw(inquiryDate)}</div>
-      <div>询价人：${escapeHtmlRaw(inquiryPerson)}</div>
-    </div>
-  </section>`
-}
-
-function dateOnlyText(value) {
-  const date = new Date(Number(value) || value)
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function inquiryTemplateFilename(orders = []) {
-  const date = new Date().toISOString().slice(0, 10)
-  if (orders.length === 1) {
-    return `${safeFilenamePart(orders[0].customerName || activeMeta.value.shortTitle)}-采购物品询价单-${date}.doc`
-  }
-  return `${activeMeta.value.shortTitle}-采购物品询价单-${orders.length}张-${date}.doc`
-}
-
-function safeFilenamePart(value) {
-  const text = String(value || '').replace(/[\\/:*?"<>|]/g, '_').trim()
-  return (text || '报价单').slice(0, 50)
-}
-
 onMounted(() => {
   loadEntityOptions()
   refreshPendingRequestCount()
